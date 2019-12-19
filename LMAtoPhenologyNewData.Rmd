@@ -1,0 +1,54 @@
+---
+title: "LMAtoPhenologyNewData"
+output: html_notebook
+---
+
+```{r}
+require(BIEN)
+require(plyr)
+require(tidyr) 
+require(dplyr)
+require(mosaic)
+require(stringr)
+require(lme4)
+require(magrittr)
+require(data.table)
+require(knitr)
+require(kableExtra)
+require(merTools)
+require(boot)
+```
+
+```{r}
+final_WSLA_DF<-readRDS(file="final_WSLA_DF.rds")
+PettoLMApredictionsfinal<-read.csv(file="PettoLMApredictionsfinal.csv")
+colnames(PettoLMApredictionsfinal)[colnames(PettoLMApredictionsfinal)=="fit"]<- "log_LMA"
+
+```
+
+We use a model with slope effect of log_LMA and intercept effect of scrubbed family. 
+```{r}
+mod3<-glmer(Phenology2~log_LMA+(1+log_LMA|scrubbed_family), family="binomial", data=final_WSLA_DF)
+
+```
+
+```{r}
+PI<-predictInterval(merMod=mod3, newdata=PettoLMApredictionsfinal, 
+                    level=0.95, n.sims=1000,
+                    stat="median", type="linear.prediction",
+                    include.resid.var = TRUE)
+PI$fit<-inv.logit(PI$fit) 
+PI$upr<-inv.logit(PI$upr)
+PI$lwr<-inv.logit(PI$lwr)
+newfinalpredictions<-cbind(PettoLMApredictionsfinal,PI)
+newfinalpredictions<-newfinalpredictions[-c(1,7)]
+
+ggplot(newfinalpredictions, aes(log_LMA, fit, group=(scrubbed_family), color=scrubbed_family)) + 
+  geom_point() + 
+  stat_smooth(method="glm", method.args=list(family="binomial"), se=FALSE)+
+  xlab('log(Leaf Mass Area)')+
+  ylab('Predicted Phenology')+theme(text = element_text(size=15))+
+  labs(title = 'Predicted Phenology from LMA with Family Information')+
+  labs(color='Family')
+ggsave("newLMAtoPhenFigure.pdf")
+```

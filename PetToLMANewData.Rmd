@@ -1,0 +1,91 @@
+---
+title: "PetToLMANewData"
+output: html_notebook
+---
+
+
+```{r}
+require(BIEN)
+require(plyr)
+require(tidyr) 
+require(dplyr)
+require(mosaic)
+require(stringr)
+require(lme4)
+require(magrittr)
+require(data.table)
+require(knitr)
+require(kableExtra)
+library(dataCompareR)
+require(utils)
+require(ggplot2)
+require(merTools)
+```
+
+Load processed data
+```{r}
+royer_tax_new<-read.csv(file="royer_tax_new.csv")
+fossildata<-read.csv(file="fossildata.csv")
+##fix columns
+fossildata <- fossildata[-c(1, 4)]
+royer_tax_new <- royer_tax_new[-c(1, 3:6, 9:11)]
+colnames(fossildata)[colnames(fossildata)=="Family"] <- "scrubbed_family"
+colnames(fossildata)[colnames(fossildata)=="Genus"] <- "scrubbed_genus"
+```
+
+we now run the data through our model with a slope effect of log pet leaf area and intercept effect of scrubbed family.
+```{r}
+model<-lmer(log_lma~log_pet_leafarea + (1+log_pet_leafarea|scrubbed_family), data=royer_tax_new)
+summary(model)
+```
+
+In order to compare our fossil data set to the living data set, we must omit predictions from fossildata that aren't present in royer_tax_new so all observations in the fossil data set are accounted for. 
+```{r}
+options(max.print = 1000)
+af<-royer_tax_new$scrubbed_family
+af
+bf<-fossildata$scrubbed_family
+bf
+
+##whats in all_fossil_royer_pred that isn't in #royer_tax_new
+
+missing<-bf[!(bf%in%af)]
+write.csv(missing, file="missing.csv")
+
+missing<-read.csv("missing.csv")
+missingdata<-subset(missing, select=-X)
+colnames(missingdata)[colnames(missingdata)=="x"]<-"scrubbed_family"
+
+tallymissing<-
+  missingdata%>%
+  group_by(scrubbed_family)%>%
+  tally()
+print.data.frame(tallymissing)
+
+fossildata<-fossildata[!fossildata$scrubbed_family %in% missingdata$scrubbed_family,]
+```
+
+Then, prediction intervals are created for LMA in fossildata based on the model. The dataset contains observations for expected LMA, but this gives prediction intervals for log LMA that give a more picture of what those values should be. 
+```{r}
+##Prediction Intervals 
+PI<-predictInterval(merMod=model, newdata=fossildata, 
+                    level=0.95, n.sims=1000,
+                    stat="median", type="linear.prediction",
+                    include.resid.var = TRUE)
+PI
+newfossilpredictions<-cbind(fossildata,PI)
+ggplot(aes(x=log_pet_leafarea, y=fit, ymin=lwr, ymax=upr, color=fossildata$scrubbed_family), data=newfossilpredictions) +
+  geom_point() +
+  geom_linerange() +
+  labs(color='Family')+
+  xlab('log(Petiole Leaf Area)')+
+  ylab('log(Leaf Mass Area)')+
+  labs(title = 'Leaf Mass Predictions from Petiole Leaf Area with Family Information')
+###save as PDF
+ggsave("PettoLMAFigure.pdf")
+```
+
+Save fossil predictions and eliminate unnecessary columns
+```{r}
+write.csv(newfossilpredictions, file="PettoLMApredictionsfinal.csv")
+```
